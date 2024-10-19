@@ -7,8 +7,8 @@ from pyspark.conf import SparkConf
 
 level = "2" #Какую таблицу тестируем, маленькую, среднюю или большую
 your_bucket_name = "result" #Имя вашего бакета
-your_access_key = "***" #Ключ от вашего бакета
-your_secret_key = "***" #Ключ от вашего бакета
+your_access_key = "MWAHF8M9M01TTWHP8TR6" #Ключ от вашего бакета
+your_secret_key = "551ZN3UDsGL5yZJWBt0Q4cP32m5ZquYjtq7XenL8" #Ключ от вашего бакета
 
 configs = {
     "spark.sql.files.maxPartitionBytes": "1073741824", #1GB

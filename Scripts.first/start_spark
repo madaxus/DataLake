@@ -1,0 +1,1 @@
+SPARK_SSH_OPTS='-i /home/alpha/alpha' /opt/spark/sbin/start-all.sh
