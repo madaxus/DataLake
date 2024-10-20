@@ -40,64 +40,41 @@ log = spark._jvm.org.apache.log4j.LogManager.getLogger(">>> App")
 incr_bucket = f"s3a://source-data"
 your_bucket = f"s3a://{your_bucket_name}"
 incr_table = f"{incr_bucket}/incr{level}"  # таблица с источника ODS , куда мы скопировали инкремент
-init_table = f"{your_bucket}/init{level}"  # реплика
-temp_table = f"{your_bucket}/temp{level}"
+table_to_copy = f"init{level}"
+init_table = f"{your_bucket}/{table_to_copy}"
+hist_table = f"{your_bucket}/{table_to_copy}.history"
+ver_table = f"{your_bucket}/{table_to_copy}.versions"
+commitedVer_table = f"{your_bucket}/{table_to_copy}.versions.commited"
 
-tgt0 = spark.read.parquet(init_table)
-columns = tgt0.columns
+version=spark.read.parquet(ver_table).sort(desc("_DL_version")).head(1)[0]._DL_version
+nextVersion=version+1
+log.info(f"Last version: {version}")
+newVersion=spark.createDataFrame([{"_DL_version":nextVersion}])
+newVersion.write.mode("append").parquet(ver_table)
 
-src0 = spark.read.parquet(incr_table)
-src = src0. \
+incr_data=spark.read.parquet(incr_table)
+history=incr_data.filter(col("eff_to_dt") != lit("5999-12-31"))
+now=incr_data.filter(col("eff_to_dt") == lit("5999-12-31"))
+
+log.info("Writing unchanged")
+unchanged=spark.read.parquet(init_table).filter(col("_DL_version") == version).join(now, on="id", how="left_anti")
+unchanged. \
     withColumn("eff_from_month", last_day(col("eff_from_dt")).cast(StringType())). \
     withColumn("eff_to_month", last_day(col("eff_to_dt")).cast(StringType())). \
-    repartition("eff_to_month", "eff_from_month"). \
-    selectExpr(columns)
-src.cache()
+    withColumn("_DL_version",unchanged._DL_version+1). \
+    write.mode("append").partitionBy("_DL_version", "eff_from_month").parquet(init_table)
+log.info("Writing changed")
+now.join(newVersion, [nextVersion==newVersion._DL_version], "left").write.mode("append"). \
+    withColumn("eff_from_month", last_day(col("eff_from_dt")).cast(StringType())). \
+    withColumn("eff_to_month", last_day(col("eff_to_dt")).cast(StringType())). \
+    partitionBy("_DL_version", "eff_from_month").parquet(init_table)
+log.info("Writing changes")
+history.join(newVersion, [nextVersion==newVersion._DL_version], "left").write.mode("append"). \
+    withColumn("eff_from_month", last_day(col("eff_from_dt")).cast(StringType())). \
+    withColumn("eff_to_month", last_day(col("eff_to_dt")).cast(StringType())). \
+    partitionBy("eff_to_month", "eff_from_month", "_DL_version").parquet(hist_table)
 
-log.info(f"SRC STARTED")
-
-# Записываем инкремент и оставляем только нужные нам закрытые записи и минимальные даты
-src.write.mode("overwrite").partitionBy("eff_to_month", "eff_from_month").parquet(temp_table)
-log.info(f"SRC written, defining closed data")
-src_closed = src.filter(col("eff_to_month") != lit("5999-12-31")).select("id", "eff_from_month", "eff_from_dt").cache()
-src_closed.isEmpty()
-src.unpersist()
-
-log.info(f"SRC FINISHED")
-
-# Получаем список субпартиций в 5999
-rows = tgt0.filter(col("eff_to_month") == lit("5999-12-31")).select(col("eff_from_month").cast(StringType())).distinct().orderBy("eff_from_month").collect()
-partitions = [str(row[0]) for row in rows]
-
-# Обрабатываем каждую партицию отдельно
-for from_dt in partitions:
-    log.info(f"{from_dt} STARTED")
-    
-    # Фильтруем до джойна, так как мы джойним ровно одну субпартицию
-    tgt = tgt0.filter(col("eff_to_month") == lit("5999-12-31")).filter(col("eff_from_month") == from_dt)
-    src_closed_single_part = src_closed.filter(col("eff_from_month") == from_dt)
-
-    # Убираем все записи, по которым пришли апдейты
-    tgt_no_match = tgt.join(src_closed_single_part, on=["id", "eff_from_dt"], how="left_anti")
-  
-    # Дозаписываем данные в таблицу
-    tgt_no_match.write.mode("append").partitionBy("eff_to_month", "eff_from_month").parquet(temp_table)
-    
-    log.info(f"{from_dt} FINISHED")
-
-log.info("Moving temp data")
-
-# Теперь надо перенести данные из темповой в основную таблицу
-# Закрытые партиции мы переносим просто так, а 5999-12-31 надо перетереть
-
-hadoop_conf = sc._jsc.hadoopConfiguration()
-fs = spark._jvm.org.apache.hadoop.fs.FileSystem.get(spark._jvm.java.net.URI(your_bucket), hadoop_conf)
-path = spark._jvm.org.apache.hadoop.fs.Path(f"{init_table}/eff_to_month=5999-12-31/")
-fs.delete(path, True)
-
-spark.read.parquet(temp_table).write.mode("append").partitionBy("eff_to_month", "eff_from_month").parquet(init_table)
-
-path = spark._jvm.org.apache.hadoop.fs.Path(temp_table)
-fs.delete(path, True)
+log.info("Commit version")
+newVersion.write.mode("append").parquet(commitedVer_table)
 
 log.info("Finished")

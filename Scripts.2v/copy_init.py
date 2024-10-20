@@ -43,6 +43,9 @@ src_bucket = f"s3a://source-data"
 tgt_bucket = f"s3a://{your_bucket_name}"
 src_init_table = f"{src_bucket}/{table_to_copy}"
 tgt_init_table = f"{tgt_bucket}/{table_to_copy}"
+tgt_hist_table = f"{tgt_bucket}/{table_to_copy}.history"
+tgt_ver_table = f"{tgt_bucket}/{table_to_copy}.versions"
+tgt_commitedVer_table = f"{tgt_bucket}/{table_to_copy}.versions.commited"
 
 #hadoop_conf = sc._jsc.hadoopConfiguration()
 #src_fs = spark._jvm.org.apache.hadoop.fs.FileSystem.get(spark._jvm.java.net.URI(src_bucket), hadoop_conf)
@@ -52,6 +55,24 @@ tgt_init_table = f"{tgt_bucket}/{table_to_copy}"
 #tgt_fs.delete(tgt_path, True)
 #spark._jvm.org.apache.hadoop.fs.FileUtil.copy(src_fs, src_path, tgt_fs, tgt_path, False, hadoop_conf)
 
-spark.read.parquet(src_init_table).write.mode("overwrite").partitionBy("eff_to_month", "eff_from_month").parquet(tgt_init_table)
+firstVersion = spark.createDataFrame([{"_DL_version":0}])
+firstVersion.write.mode("overwrite").parquet(tgt_ver_table)
+firstVersion.write.mode("overwrite").parquet(tgt_commitedVer_table)
+
+src_init_data=spark.read.parquet(src_init_table)
+history=src_init_data.filter(col("eff_to_month") != lit("5999-12-31"))
+now=src_init_data.filter(col("eff_to_month") == lit("5999-12-31"))
+
+# schema=src_init_data.schema
+# data=spark.createDataFrame(now.head(10),schema)
+# data.show()
+# dataVer = data.join(firstVersion, [0==firstVersion._DL_version], "left")
+# dataVer.show()
+# dataVer.write.mode("overwrite").partitionBy("version", "eff_from_month").parquet(tgt_init_table)
+
+history.join(firstVersion, [0==firstVersion._DL_version], "left").write.mode("overwrite"). \
+    partitionBy("eff_to_month", "eff_from_month", "_DL_version").parquet(tgt_hist_table)
+now.join(firstVersion, [0==firstVersion._DL_version], "left").write.mode("overwrite"). \
+    partitionBy("_DL_version", "eff_from_month").parquet(tgt_init_table)
 
 log.info("Finished")

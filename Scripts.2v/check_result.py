@@ -43,14 +43,19 @@ incr_bucket = f"s3a://source-data"
 your_bucket = f"s3a://{your_bucket_name}"
 incr_table = f"{incr_bucket}/incr{level}"
 init_table = f"{incr_bucket}/init{level}"  
-your_table = f"{your_bucket}/init{level}"
+table_to_copy = f"init{level}"
+your_table = f"{your_bucket}/{table_to_copy}"
+hist_table = f"{your_bucket}/{table_to_copy}.history"
+commitedVer_table = f"{your_bucket}/{table_to_copy}.versions.commited"
+
+version=spark.read.parquet(commitedVer_table).sort(desc("_DL_version")).head(1)[0]._DL_version
 
 oldLines = spark.read.parquet(init_table).count()
-newLines = spark.read.parquet(incr_table).where(col("id") > oldLines).count()
-closedLines = spark.read.parquet(incr_table).where(col("eff_to_dt") != "5999-12-31").count()
+newLines = spark.read.parquet(incr_table).filter(col("id") > oldLines).count()
+closedLines = spark.read.parquet(incr_table).filter(col("eff_to_dt") != "5999-12-31").count()
 
-newLinesT = spark.read.parquet(your_table).where(col("eff_to_month") == "5999-12-31").count()
-closedLinesT = spark.read.parquet(your_table).where(col("eff_to_month") != "5999-12-31").count()
+newLinesT = spark.read.parquet(your_table).filter(col("_DL_version") == version).count()
+closedLinesT = spark.read.parquet(hist_table).filter(col("_DL_version") <= version).count()
 
 if (oldLines + newLines) == newLinesT:
     print(f"Open records match: {newLinesT}")
