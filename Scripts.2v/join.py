@@ -46,7 +46,7 @@ hist_table = f"{your_bucket}/{table_to_copy}.history"
 ver_table = f"{your_bucket}/{table_to_copy}.versions"
 commitedVer_table = f"{your_bucket}/{table_to_copy}.versions.commited"
 
-version=spark.read.parquet(ver_table).sort(desc("_DL_version")).head(1)[0]._DL_version
+version=spark.read.parquet(commitedVer_table).sort(desc("_DL_version")).head(1)[0]._DL_version
 nextVersion=version+1
 log.info(f"Last version: {version}")
 newVersion=spark.createDataFrame([{"_DL_version":nextVersion}])
@@ -57,21 +57,23 @@ history=incr_data.filter(col("eff_to_dt") != lit("5999-12-31"))
 now=incr_data.filter(col("eff_to_dt") == lit("5999-12-31"))
 
 log.info("Writing unchanged")
-unchanged=spark.read.parquet(init_table).filter(col("_DL_version") == version).join(now, on="id", how="left_anti")
-unchanged. \
+spark.read.parquet(init_table).filter(col("_DL_version") == version). \
     withColumn("eff_from_month", last_day(col("eff_from_dt")).cast(StringType())). \
     withColumn("eff_to_month", last_day(col("eff_to_dt")).cast(StringType())). \
-    withColumn("_DL_version",unchanged._DL_version+1). \
+    withColumn("_DL_version",col("_DL_version")+1). \
+    join(now, on="id", how="left_anti"). \
     write.mode("append").partitionBy("_DL_version", "eff_from_month").parquet(init_table)
 log.info("Writing changed")
-now.join(newVersion, [nextVersion==newVersion._DL_version], "left").write.mode("append"). \
+now. \
     withColumn("eff_from_month", last_day(col("eff_from_dt")).cast(StringType())). \
     withColumn("eff_to_month", last_day(col("eff_to_dt")).cast(StringType())). \
+    join(newVersion, [nextVersion==newVersion._DL_version], "left").write.mode("append"). \
     partitionBy("_DL_version", "eff_from_month").parquet(init_table)
 log.info("Writing changes")
-history.join(newVersion, [nextVersion==newVersion._DL_version], "left").write.mode("append"). \
+history. \
     withColumn("eff_from_month", last_day(col("eff_from_dt")).cast(StringType())). \
     withColumn("eff_to_month", last_day(col("eff_to_dt")).cast(StringType())). \
+    join(newVersion, [nextVersion==newVersion._DL_version], "left").write.mode("append"). \
     partitionBy("eff_to_month", "eff_from_month", "_DL_version").parquet(hist_table)
 
 log.info("Commit version")
