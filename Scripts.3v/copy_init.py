@@ -4,6 +4,7 @@ from pyspark.sql import SparkSession
 from pyspark.conf import SparkConf
 
 level = "2" #Какую таблицу тестируем, маленькую, среднюю или большую
+partCount = 256
 your_bucket_name = "result3v" #Имя вашего бакета
 your_access_key = "MWAHF8M9M01TTWHP8TR6" #Ключ от вашего бакета
 your_secret_key = "551ZN3UDsGL5yZJWBt0Q4cP32m5ZquYjtq7XenL8" #Ключ от вашего бакета
@@ -46,6 +47,7 @@ tgt_init_table = f"{tgt_bucket}/{table_to_copy}"
 tgt_hist_table = f"{tgt_bucket}/{table_to_copy}.history"
 tgt_ver_table = f"{tgt_bucket}/{table_to_copy}.versions"
 tgt_commitedVer_table = f"{tgt_bucket}/{table_to_copy}.versions.commited"
+tgt_partVer_table = f"{tgt_bucket}/{table_to_copy}.versions.part"
 
 #hadoop_conf = sc._jsc.hadoopConfiguration()
 #src_fs = spark._jvm.org.apache.hadoop.fs.FileSystem.get(spark._jvm.java.net.URI(src_bucket), hadoop_conf)
@@ -57,13 +59,13 @@ tgt_commitedVer_table = f"{tgt_bucket}/{table_to_copy}.versions.commited"
 
 firstVersion = spark.createDataFrame([{"_DL_version":0}])
 firstVersion.write.mode("overwrite").parquet(tgt_ver_table)
-firstVersion.write.mode("overwrite").parquet(tgt_commitedVer_table)
 
-src_init_data=spark.read.parquet(src_init_table). \
-    withColumn("id_part",col("id_part")/1000). \
-    show()
+src_init_data=spark.read.parquet(src_init_table)
 history=src_init_data.filter(col("eff_to_month") != lit("5999-12-31"))
-now=src_init_data.filter(col("eff_to_month") == lit("5999-12-31"))
+now=src_init_data.filter(col("eff_to_month") == lit("5999-12-31")). \
+    withColumn("id_part",col("id")%partCount). \
+    join(firstVersion, [0==firstVersion._DL_version], "left"). \
+    repartitionByRange("id_part", "_DL_version", "eff_from_month")
 
 # schema=src_init_data.schema
 # data=spark.createDataFrame(now.head(10),schema)
@@ -72,9 +74,23 @@ now=src_init_data.filter(col("eff_to_month") == lit("5999-12-31"))
 # dataVer.show()
 # dataVer.write.mode("overwrite").partitionBy("version", "eff_from_month").parquet(tgt_init_table)
 
-history.join(firstVersion, [0==firstVersion._DL_version], "left").write.mode("overwrite"). \
+history.withColumn("id_part",col("id")%partCount). \
+    join(firstVersion, [0==firstVersion._DL_version], "left").write.mode("overwrite"). \
     partitionBy("eff_to_month", "eff_from_month", "_DL_version").parquet(tgt_hist_table)
-now.join(firstVersion, [0==firstVersion._DL_version], "left").write.mode("overwrite"). \
-    partitionBy("_DL_version", "eff_from_month").parquet(tgt_init_table)
+# now.join(firstVersion, [0==firstVersion._DL_version], "left").write.mode("overwrite"). \
+#     partitionBy("_DL_version", "eff_from_month").parquet(tgt_init_table)
+# now. \
+#     join(firstVersion, [0==firstVersion._DL_version], "left").write.mode("overwrite"). \
+#     partitionBy("id_part", "_DL_version", "eff_from_month").parquet(tgt_init_table)
+now.write.mode("overwrite"). \
+    partitionBy("id_part", "_DL_version", "eff_from_month").parquet(tgt_init_table)
+
+# now.select(col("id")). \
+# now.select(col("id_part")).distinct().join(firstVersion, [0==firstVersion._DL_version], "left"). \
+#     write.mode("overwrite").parquet(tgt_partVer_table)
+now.select(col("id_part","_DL_version")).distinct. \
+    write.mode("overwrite").parquet(tgt_partVer_table)
+
+firstVersion.write.mode("overwrite").parquet(tgt_commitedVer_table)
 
 log.info("Finished")

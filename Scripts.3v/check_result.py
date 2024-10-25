@@ -47,6 +47,7 @@ table_to_copy = f"init{level}"
 your_table = f"{your_bucket}/{table_to_copy}"
 hist_table = f"{your_bucket}/{table_to_copy}.history"
 commitedVer_table = f"{your_bucket}/{table_to_copy}.versions.commited"
+tgt_partVer_table = f"{tgt_bucket}/{table_to_copy}.versions.part"
 
 version=spark.read.parquet(commitedVer_table).sort(desc("_DL_version")).head(1)[0]._DL_version
 
