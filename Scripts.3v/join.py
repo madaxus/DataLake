@@ -69,13 +69,25 @@ now=incr_data.filter(col("eff_to_dt") == lit("5999-12-31"))
 id_part_changed=now. \
     withColumn("id_part",col("id")%partCount). \
     select(col("id")).withColumn("id",col("id")%partCount).distinct()
-id_part_changed.show()
-spark.read.parquet(partVer_table). \
-    join(id_part_changed, [id_part==id], "inner").drop("id"). \
-    withColumnRenamed("id_part",col("id_part_")). \
-    withColumnRenamed("_DL_version",col("_DL_version_")).show
 
-# now.select(col("id_part","_DL_version")).distinct. \
+log.info("id_part_changed")
+id_part_changed.show()
+log.info(id_part_changed.count())
+
+log.info("partVer_table")
+pvt=spark.read.parquet(partVer_table)
+pvt.show()
+log.info(pvt.count())
+
+log.info("joiner")
+joiner=pvt. \
+    join(id_part_changed, pvt.id_part==id_part_changed.id, "inner").drop("id"). \
+    withColumnRenamed("id_part","id_part_"). \
+    withColumnRenamed("_DL_version","_DL_version_")
+joiner.show()
+log.info(joiner.count())
+
+# now.select(col("id_part"),col("_DL_version")).distinct. \
 #     write.mode("overwrite").parquet(partVer_table)
 
 

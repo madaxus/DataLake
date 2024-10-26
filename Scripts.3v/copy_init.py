@@ -64,8 +64,8 @@ src_init_data=spark.read.parquet(src_init_table)
 history=src_init_data.filter(col("eff_to_month") != lit("5999-12-31"))
 now=src_init_data.filter(col("eff_to_month") == lit("5999-12-31")). \
     withColumn("id_part",col("id")%partCount). \
-    join(firstVersion, [0==firstVersion._DL_version], "left"). \
-    repartitionByRange("id_part", "_DL_version", "eff_from_month")
+    join(firstVersion, [0==firstVersion._DL_version], "left")#. \
+    # repartitionByRange("id_part", "_DL_version", "eff_from_month")
 
 # schema=src_init_data.schema
 # data=spark.createDataFrame(now.head(10),schema)
@@ -74,23 +74,24 @@ now=src_init_data.filter(col("eff_to_month") == lit("5999-12-31")). \
 # dataVer.show()
 # dataVer.write.mode("overwrite").partitionBy("version", "eff_from_month").parquet(tgt_init_table)
 
-history.withColumn("id_part",col("id")%partCount). \
-    join(firstVersion, [0==firstVersion._DL_version], "left").write.mode("overwrite"). \
-    partitionBy("eff_to_month", "eff_from_month", "_DL_version").parquet(tgt_hist_table)
+# history.withColumn("id_part",col("id")%partCount). \
+#     join(firstVersion, [0==firstVersion._DL_version], "left").write.mode("overwrite"). \
+#     partitionBy("eff_to_month", "eff_from_month", "_DL_version").parquet(tgt_hist_table)
 # now.join(firstVersion, [0==firstVersion._DL_version], "left").write.mode("overwrite"). \
 #     partitionBy("_DL_version", "eff_from_month").parquet(tgt_init_table)
 # now. \
 #     join(firstVersion, [0==firstVersion._DL_version], "left").write.mode("overwrite"). \
 #     partitionBy("id_part", "_DL_version", "eff_from_month").parquet(tgt_init_table)
-now.write.mode("overwrite"). \
-    partitionBy("id_part", "_DL_version", "eff_from_month").parquet(tgt_init_table)
+# now.write.mode("overwrite"). \
+#     partitionBy("id_part", "_DL_version", "eff_from_month").parquet(tgt_init_table)
 
-# now.select(col("id")). \
 # now.select(col("id_part")).distinct().join(firstVersion, [0==firstVersion._DL_version], "left"). \
 #     write.mode("overwrite").parquet(tgt_partVer_table)
-now.select(col("id_part","_DL_version")).distinct. \
+now.select(col("id_part"),col("_DL_version")).distinct(). \
     write.mode("overwrite").parquet(tgt_partVer_table)
 
 firstVersion.write.mode("overwrite").parquet(tgt_commitedVer_table)
 
 log.info("Finished")
+
+# Жернова / Максим Кондратьев
